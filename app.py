@@ -5,6 +5,7 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 from matplotlib import pyplot as plt
+from matplotlib.collections import LineCollection
 from scipy.stats import linregress
 import warnings
 
@@ -48,7 +49,7 @@ def get_tyre_deg_rate(session, driver):
     return deg_rates, base_times
 
 # Create Navigation Tabs
-tab1, tab2 = st.tabs(["📊 Race Strategy Simulator", "⚡ Telemetry Comparison"])
+tab1, tab2, tab3 = st.tabs(["📊 Race Strategy Simulator", "⚡ Telemetry Comparison", "🗺️ 2D Track Heatmap"])
 
 # ---------------- TAB 1: STRATEGY SIMULATOR ----------------
 with tab1:
@@ -174,3 +175,55 @@ with tab2:
 
             plt.tight_layout()
             st.pyplot(fig)
+
+# ---------------- TAB 3: 2D TRACK HEATMAP ----------------
+with tab3:
+    st.subheader("2D Circuit Telemetry Heatmap")
+    c_m1, c_m2, c_m3, c_m4 = st.columns(4)
+    with c_m1:
+        map_year = st.number_input("Year", min_value=2018, max_value=2024, value=2024, key="map_year")
+    with c_m2:
+        map_gp = st.text_input("Grand Prix", value="Bahrain", key="map_gp")
+    with c_m3:
+        map_driver = st.text_input("Driver Code", value="VER", key="map_driver")
+    with c_m4:
+        map_metric = st.selectbox("Color By", ["Speed", "Gear"], index=0)
+
+    if st.button("Generate Heatmap"):
+        with st.spinner("Processing GPS & Telemetry Data..."):
+            session_map = load_session(map_year, map_gp, 'Q')
+            lap_map = session_map.laps.pick_drivers(map_driver).pick_fastest()
+            tel_map = lap_map.get_telemetry()
+
+            x = tel_map['X'].to_numpy()
+            y = tel_map['Y'].to_numpy()
+
+            if map_metric == 'Gear':
+                c_vals = tel_map['nGear'].to_numpy()
+                cmap_name = 'tab10'
+                label_title = "Gear"
+            else:
+                c_vals = tel_map['Speed'].to_numpy()
+                cmap_name = 'plasma'
+                label_title = "Speed (km/h)"
+
+            points = np.array([x, y]).T.reshape(-1, 1, 2)
+            segments = np.concatenate([points[:-1], points[1:]], axis=1)
+
+            fastf1.plotting.setup_mpl(mpl_style='dark_background')
+            fig_map, ax_map = plt.subplots(figsize=(10, 8))
+
+            norm = plt.Normalize(c_vals.min(), c_vals.max())
+            lc = LineCollection(segments, cmap=plt.get_cmap(cmap_name), norm=norm, linewidth=5)
+            lc.set_array(c_vals)
+
+            ax_map.add_collection(lc)
+            ax_map.autoscale()
+            ax_map.set_axis_off()
+
+            cbar = fig_map.colorbar(lc, ax=ax_map, orientation='horizontal', pad=0.05, shrink=0.7)
+            cbar.set_label(label_title, fontsize=12)
+
+            ax_map.set_title(f"Track Heatmap ({map_metric}): {map_driver} — {map_year} {map_gp} (Q)\nFastest Lap: {lap_map['LapTime'].total_seconds():.3f}s", fontsize=14)
+            
+            st.pyplot(fig_map)
