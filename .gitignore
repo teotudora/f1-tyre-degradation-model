@@ -1,0 +1,23 @@
+# Python Virtual Environment
+venv/
+ENV/
+env/
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# FastF1 / Data Caches
+f1_cache/
+*.ff1pkl
+*.sqlite
+
+# Output files
+outputs/
+*.html
+
+# IDE & OS files
+.DS_Store
+.vscode/
+.idea/
