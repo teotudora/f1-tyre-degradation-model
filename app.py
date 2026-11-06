@@ -16,8 +16,8 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 st.set_page_config(page_title="F1 Analytics & Strategy Suite", layout="wide")
 st.title("🏎️ F1 Telemetry & Strategy Suite")
 
-# Safe Cache Initialization for Streamlit Cloud
-cache_dir = '/tmp/f1_cache' if os.path.exists('/tmp') else './f1_cache_dir'
+# FastF1 Cache Setup: Prioritize repository pre-cached directory
+cache_dir = './f1_cache' if os.path.exists('./f1_cache') else '/tmp/f1_cache'
 try:
     os.makedirs(cache_dir, exist_ok=True)
     fastf1.Cache.enable_cache(cache_dir)
@@ -26,7 +26,7 @@ except Exception:
 
 @st.cache_data
 def load_session(year, gp, session_type='R'):
-    """Loads session data with robust fallback handling."""
+    """Loads session data using local cached raw response files when available."""
     session = fastf1.get_session(int(year), str(gp).strip(), session_type)
     try:
         session.load()
@@ -38,7 +38,7 @@ def load_session(year, gp, session_type='R'):
     return session
 
 def is_laps_loaded(session):
-    """Safely checks if laps data is loaded without triggering DataNotLoadedError on FastF1 property methods."""
+    """Safely checks if laps data is loaded without triggering DataNotLoadedError on FastF1 properties."""
     try:
         return session.laps is not None and not session.laps.empty
     except Exception:
@@ -56,7 +56,7 @@ def get_total_laps(session):
             return int(session.laps['LapNumber'].max())
     except Exception:
         pass
-    return 57  # Standard default fallback
+    return 57  # Default fallback
 
 def get_tyre_deg_rate(session, driver, total_laps):
     try:
@@ -110,7 +110,7 @@ with tab1:
             session = load_session(year_strat, gp_strat, 'R')
             
             if not is_laps_loaded(session):
-                st.error(f"⚠️ Session data for '{gp_strat} {year_strat}' could not be loaded. F1 servers might be throttling cloud IPs. Try another GP (e.g., Monaco, Spa, Monza).")
+                st.error(f"⚠️ Session data for '{gp_strat} {year_strat}' is not cached on Cloud. Try pre-cached sessions (e.g. Bahrain 2024, Monaco 2023).")
             else:
                 total_laps = get_total_laps(session)
                 drivers = list(session.laps['Driver'].unique())
