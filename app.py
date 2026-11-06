@@ -16,7 +16,7 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 st.set_page_config(page_title="F1 Analytics & Strategy Suite", layout="wide")
 st.title("🏎️ F1 Telemetry & Strategy Suite")
 
-# Safe Cache Initialization
+# Safe Cache Initialization for Streamlit Cloud
 cache_dir = '/tmp/f1_cache' if os.path.exists('/tmp') else './f1_cache_dir'
 try:
     os.makedirs(cache_dir, exist_ok=True)
@@ -26,15 +26,19 @@ except Exception:
 
 @st.cache_data
 def load_session(year, gp, session_type='R'):
-    """Loads session data with fallback handling for Sprint weekends and cloud servers."""
+    """Loads session with automatic fallback for cloud server IP throttling."""
     session = fastf1.get_session(int(year), str(gp).strip(), session_type)
+    
+    # Try loading full session data first
     try:
         session.load()
     except Exception:
+        # Fallback to core timing data if cloud streaming IP is throttled
         try:
             session.load(telemetry=False, weather=False, messages=False)
         except Exception:
             pass
+            
     return session
 
 def get_total_laps(session):
@@ -49,7 +53,7 @@ def get_total_laps(session):
             return int(session.laps['LapNumber'].max())
     except Exception:
         pass
-    return 57  # Standard default fallback
+    return 57  # Default fallback
 
 def get_tyre_deg_rate(session, driver, total_laps):
     try:
@@ -100,59 +104,58 @@ with tab1:
 
     if st.session_state.run_sim:
         with st.spinner("Loading race session..."):
-            try:
-                session = load_session(year_strat, gp_strat, 'R')
-                if not hasattr(session, 'laps') or session.laps is None or session.laps.empty:
-                    st.error(f"Could not load lap data for {gp_strat} ({year_strat}). Try another GP (e.g. Monaco, Silverstone, Spa).")
-                else:
-                    total_laps = get_total_laps(session)
-                    drivers = list(session.laps['Driver'].unique())
-                    
-                    st.subheader(f"Strategy Comparison: {gp_strat} GP ({year_strat})")
-                    
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        d1 = st.selectbox("Driver 1 (Undercutter)", drivers, index=0, key="sim_d1")
-                        d1_pit = st.slider(f"{d1} Pit Lap", 1, total_laps, max(1, int(total_laps * 0.3)), key="sim_d1_pit")
-                    with col2:
-                        d2 = st.selectbox("Driver 2 (Target)", drivers, index=min(1, len(drivers)-1), key="sim_d2")
-                        d2_pit = st.slider(f"{d2} Pit Lap", 1, total_laps, max(1, int(total_laps * 0.4)), key="sim_d2_pit")
+            session = load_session(year_strat, gp_strat, 'R')
+            
+            # Check if laps were successfully loaded into the session dataframe
+            if not hasattr(session, 'laps') or session.laps is None or session.laps.empty:
+                st.error(f"⚠️ FastF1 session data for '{gp_strat} {year_strat}' is temporarily throttled by F1 servers on Cloud. Try running another GP (e.g., Monaco, Spa, Monza).")
+            else:
+                total_laps = get_total_laps(session)
+                drivers = list(session.laps['Driver'].unique())
+                
+                st.subheader(f"Strategy Comparison: {gp_strat} GP ({year_strat})")
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    d1 = st.selectbox("Driver 1 (Undercutter)", drivers, index=0, key="sim_d1")
+                    d1_pit = st.slider(f"{d1} Pit Lap", 1, total_laps, max(1, int(total_laps * 0.3)), key="sim_d1_pit")
+                with col2:
+                    d2 = st.selectbox("Driver 2 (Target)", drivers, index=min(1, len(drivers)-1), key="sim_d2")
+                    d2_pit = st.slider(f"{d2} Pit Lap", 1, total_laps, max(1, int(total_laps * 0.4)), key="sim_d2_pit")
 
-                    d1_deg, d1_base = get_tyre_deg_rate(session, d1, total_laps)
-                    d2_deg, d2_base = get_tyre_deg_rate(session, d2, total_laps)
+                d1_deg, d1_base = get_tyre_deg_rate(session, d1, total_laps)
+                d2_deg, d2_base = get_tyre_deg_rate(session, d2, total_laps)
 
-                    laps_seq = np.arange(1, total_laps + 1)
-                    
-                    d1_times = []
-                    d1_age = 0
-                    for lap in laps_seq:
-                        penalty = pit_loss if lap == d1_pit else 0.0
-                        base = d1_base.get('MEDIUM', 90.0)
-                        deg = d1_deg.get('MEDIUM', 0.05)
-                        lap_time = base + (d1_age * deg) - ((total_laps - lap) * 0.035) + penalty
-                        d1_times.append(lap_time)
-                        d1_age = 0 if lap == d1_pit else d1_age + 1
+                laps_seq = np.arange(1, total_laps + 1)
+                
+                d1_times = []
+                d1_age = 0
+                for lap in laps_seq:
+                    penalty = pit_loss if lap == d1_pit else 0.0
+                    base = d1_base.get('MEDIUM', 90.0)
+                    deg = d1_deg.get('MEDIUM', 0.05)
+                    lap_time = base + (d1_age * deg) - ((total_laps - lap) * 0.035) + penalty
+                    d1_times.append(lap_time)
+                    d1_age = 0 if lap == d1_pit else d1_age + 1
 
-                    d2_times = []
-                    d2_age = 0
-                    for lap in laps_seq:
-                        penalty = pit_loss if lap == d2_pit else 0.0
-                        base = d2_base.get('MEDIUM', 90.0)
-                        deg = d2_deg.get('MEDIUM', 0.05)
-                        lap_time = base + (d2_age * deg) - ((total_laps - lap) * 0.035) + penalty
-                        d2_times.append(lap_time)
-                        d2_age = 0 if lap == d2_pit else d2_age + 1
+                d2_times = []
+                d2_age = 0
+                for lap in laps_seq:
+                    penalty = pit_loss if lap == d2_pit else 0.0
+                    base = d2_base.get('MEDIUM', 90.0)
+                    deg = d2_deg.get('MEDIUM', 0.05)
+                    lap_time = base + (d2_age * deg) - ((total_laps - lap) * 0.035) + penalty
+                    d2_times.append(lap_time)
+                    d2_age = 0 if lap == d2_pit else d2_age + 1
 
-                    gap = np.cumsum(d1_times) - np.cumsum(d2_times)
+                gap = np.cumsum(d1_times) - np.cumsum(d2_times)
 
-                    fig = go.Figure()
-                    fig.add_trace(go.Scatter(x=laps_seq, y=gap, mode='lines+markers', name=f'{d1} vs {d2} Gap', line=dict(color='#E10600', width=3)))
-                    fig.add_hline(y=0, line_dash="dash", line_color="white", annotation_text="Equal Position")
-                    fig.update_layout(title=f"Gap Delta Over Race ({d1} vs {d2})", xaxis_title="Lap", yaxis_title=f"Gap (s) — Negative = {d1} Ahead", template="plotly_dark")
-                    
-                    st.plotly_chart(fig, use_container_width=True)
-            except Exception as e:
-                st.error(f"Session Data Error: {e}")
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(x=laps_seq, y=gap, mode='lines+markers', name=f'{d1} vs {d2} Gap', line=dict(color='#E10600', width=3)))
+                fig.add_hline(y=0, line_dash="dash", line_color="white", annotation_text="Equal Position")
+                fig.update_layout(title=f"Gap Delta Over Race ({d1} vs {d2})", xaxis_title="Lap", yaxis_title=f"Gap (s) — Negative = {d1} Ahead", template="plotly_dark")
+                
+                st.plotly_chart(fig, use_container_width=True)
 
 # ---------------- TAB 2: TELEMETRY COMPARISON ----------------
 with tab2:
@@ -173,66 +176,63 @@ with tab2:
 
     if st.session_state.run_tel:
         with st.spinner("Fetching lap telemetry data..."):
-            try:
-                session_tel = load_session(year_tel, gp_tel, session_type)
-                if not hasattr(session_tel, 'laps') or session_tel.laps is None or session_tel.laps.empty:
-                    st.error(f"Could not load telemetry for {gp_tel} ({year_tel}).")
-                else:
-                    drivers_tel = list(session_tel.laps['Driver'].unique())
+            session_tel = load_session(year_tel, gp_tel, session_type)
+            if not hasattr(session_tel, 'laps') or session_tel.laps is None or session_tel.laps.empty:
+                st.error(f"Telemetry stream currently unavailable for {gp_tel} ({year_tel}).")
+            else:
+                drivers_tel = list(session_tel.laps['Driver'].unique())
 
-                    c1, c2 = st.columns(2)
-                    with c1:
-                        driver1 = st.selectbox("Driver 1", drivers_tel, index=0, key="tel_d1")
-                    with c2:
-                        driver2 = st.selectbox("Driver 2", drivers_tel, index=min(1, len(drivers_tel)-1), key="tel_d2")
+                c1, c2 = st.columns(2)
+                with c1:
+                    driver1 = st.selectbox("Driver 1", drivers_tel, index=0, key="tel_d1")
+                with c2:
+                    driver2 = st.selectbox("Driver 2", drivers_tel, index=min(1, len(drivers_tel)-1), key="tel_d2")
 
-                    lap_d1 = session_tel.laps.pick_drivers(driver1).pick_fastest()
-                    lap_d2 = session_tel.laps.pick_drivers(driver2).pick_fastest()
+                lap_d1 = session_tel.laps.pick_drivers(driver1).pick_fastest()
+                lap_d2 = session_tel.laps.pick_drivers(driver2).pick_fastest()
 
-                    tel_d1 = lap_d1.get_telemetry().add_distance()
-                    tel_d2 = lap_d2.get_telemetry().add_distance()
+                tel_d1 = lap_d1.get_telemetry().add_distance()
+                tel_d2 = lap_d2.get_telemetry().add_distance()
 
-                    d2_time_interp = np.interp(
-                        tel_d1['Distance'], 
-                        tel_d2['Distance'], 
-                        tel_d2['Time'].dt.total_seconds()
-                    )
-                    d1_time = tel_d1['Time'].dt.total_seconds().to_numpy()
-                    delta_time = d1_time - d2_time_interp
+                d2_time_interp = np.interp(
+                    tel_d1['Distance'], 
+                    tel_d2['Distance'], 
+                    tel_d2['Time'].dt.total_seconds()
+                )
+                d1_time = tel_d1['Time'].dt.total_seconds().to_numpy()
+                delta_time = d1_time - d2_time_interp
 
-                    color_d1 = fastf1.plotting.get_driver_color(driver1, session=session_tel)
-                    color_d2 = fastf1.plotting.get_driver_color(driver2, session=session_tel)
+                color_d1 = fastf1.plotting.get_driver_color(driver1, session=session_tel)
+                color_d2 = fastf1.plotting.get_driver_color(driver2, session=session_tel)
 
-                    fastf1.plotting.setup_mpl(mpl_style='dark_background')
-                    fig, ax = plt.subplots(4, 1, figsize=(14, 10), sharex=True, gridspec_kw={'height_ratios': [2, 1, 1, 1]})
+                fastf1.plotting.setup_mpl(mpl_style='dark_background')
+                fig, ax = plt.subplots(4, 1, figsize=(14, 10), sharex=True, gridspec_kw={'height_ratios': [2, 1, 1, 1]})
 
-                    ax[0].plot(tel_d1['Distance'], tel_d1['Speed'], color=color_d1, label=f"{driver1} ({lap_d1['LapTime'].total_seconds():.3f}s)")
-                    ax[0].plot(tel_d2['Distance'], tel_d2['Speed'], color=color_d2, label=f"{driver2} ({lap_d2['LapTime'].total_seconds():.3f}s)")
-                    ax[0].set_ylabel("Speed (km/h)")
-                    ax[0].set_title(f"{driver1} vs {driver2} Telemetry — {year_tel} {gp_tel} ({session_type})", fontsize=14)
-                    ax[0].legend(loc='lower right')
-                    ax[0].grid(True, linestyle='--', alpha=0.3)
+                ax[0].plot(tel_d1['Distance'], tel_d1['Speed'], color=color_d1, label=f"{driver1} ({lap_d1['LapTime'].total_seconds():.3f}s)")
+                ax[0].plot(tel_d2['Distance'], tel_d2['Speed'], color=color_d2, label=f"{driver2} ({lap_d2['LapTime'].total_seconds():.3f}s)")
+                ax[0].set_ylabel("Speed (km/h)")
+                ax[0].set_title(f"{driver1} vs {driver2} Telemetry — {year_tel} {gp_tel} ({session_type})", fontsize=14)
+                ax[0].legend(loc='lower right')
+                ax[0].grid(True, linestyle='--', alpha=0.3)
 
-                    ax[1].plot(tel_d1['Distance'], delta_time, color='cyan')
-                    ax[1].axhline(0, color='white', linestyle='--', alpha=0.5)
-                    ax[1].set_ylabel("Delta (s)")
-                    ax[1].grid(True, linestyle='--', alpha=0.3)
+                ax[1].plot(tel_d1['Distance'], delta_time, color='cyan')
+                ax[1].axhline(0, color='white', linestyle='--', alpha=0.5)
+                ax[1].set_ylabel("Delta (s)")
+                ax[1].grid(True, linestyle='--', alpha=0.3)
 
-                    ax[2].plot(tel_d1['Distance'], tel_d1['Throttle'], color=color_d1)
-                    ax[2].plot(tel_d2['Distance'], tel_d2['Throttle'], color=color_d2)
-                    ax[2].set_ylabel("Throttle (%)")
-                    ax[2].grid(True, linestyle='--', alpha=0.3)
+                ax[2].plot(tel_d1['Distance'], tel_d1['Throttle'], color=color_d1)
+                ax[2].plot(tel_d2['Distance'], tel_d2['Throttle'], color=color_d2)
+                ax[2].set_ylabel("Throttle (%)")
+                ax[2].grid(True, linestyle='--', alpha=0.3)
 
-                    ax[3].plot(tel_d1['Distance'], tel_d1['Brake'], color=color_d1)
-                    ax[3].plot(tel_d2['Distance'], tel_d2['Brake'], color=color_d2)
-                    ax[3].set_ylabel("Brake")
-                    ax[3].set_xlabel("Track Distance (m)")
-                    ax[3].grid(True, linestyle='--', alpha=0.3)
+                ax[3].plot(tel_d1['Distance'], tel_d1['Brake'], color=color_d1)
+                ax[3].plot(tel_d2['Distance'], tel_d2['Brake'], color=color_d2)
+                ax[3].set_ylabel("Brake")
+                ax[3].set_xlabel("Track Distance (m)")
+                ax[3].grid(True, linestyle='--', alpha=0.3)
 
-                    plt.tight_layout()
-                    st.pyplot(fig)
-            except Exception as e:
-                st.error(f"Telemetry Error: {e}")
+                plt.tight_layout()
+                st.pyplot(fig)
 
 # ---------------- TAB 3: 2D TRACK HEATMAP ----------------
 with tab3:
@@ -249,8 +249,10 @@ with tab3:
 
     if st.button("Generate Heatmap"):
         with st.spinner("Processing GPS & Telemetry Data..."):
-            try:
-                session_map = load_session(map_year, map_gp, 'Q')
+            session_map = load_session(map_year, map_gp, 'Q')
+            if not hasattr(session_map, 'laps') or session_map.laps is None or session_map.laps.empty:
+                st.error("Heatmap telemetry currently unavailable for this session.")
+            else:
                 lap_map = session_map.laps.pick_drivers(map_driver).pick_fastest()
                 tel_map = lap_map.get_telemetry()
 
@@ -286,8 +288,6 @@ with tab3:
                 ax_map.set_title(f"Track Heatmap ({map_metric}): {map_driver} — {map_year} {map_gp} (Q)\nFastest Lap: {lap_map['LapTime'].total_seconds():.3f}s", fontsize=14)
                 
                 st.pyplot(fig_map)
-            except Exception as e:
-                st.error(f"Error generating heatmap: {e}")
 
 # ---------------- TAB 4: LANDO NORRIS ANALYSIS ----------------
 with tab4:
@@ -302,8 +302,10 @@ with tab4:
 
     if st.button("Run Lando Norris Analysis"):
         with st.spinner("Analyzing Lando Norris telemetry..."):
-            try:
-                session_ln = load_session(ln_year, ln_gp, 'Q')
+            session_ln = load_session(ln_year, ln_gp, 'Q')
+            if not hasattr(session_ln, 'laps') or session_ln.laps is None or session_ln.laps.empty:
+                st.error("Session data unavailable for Norris comparison.")
+            else:
                 lap_nor = session_ln.laps.pick_drivers('NOR').pick_fastest()
                 lap_riv = session_ln.laps.pick_drivers(ln_rival).pick_fastest()
 
@@ -368,8 +370,6 @@ with tab4:
 
                 plt.tight_layout()
                 st.pyplot(fig_ln)
-            except Exception as e:
-                st.error(f"Error running Norris analysis: {e}")
 
 # ---------------- TAB 5: ML FINISHING PREDICTOR ----------------
 with tab5:
