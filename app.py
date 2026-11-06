@@ -26,8 +26,13 @@ except Exception:
 
 @st.cache_data
 def load_session(year, gp, session_type='R'):
+    """Loads session with error handling and fallback loading."""
     session = fastf1.get_session(year, gp, session_type)
-    session.load()
+    try:
+        session.load()
+    except Exception:
+        # Fallback load without heavy telemetry streams if cloud IP is throttled
+        session.load(telemetry=False, weather=False, messages=False)
     return session
 
 def get_total_laps(session):
@@ -37,8 +42,11 @@ def get_total_laps(session):
             return int(session.total_laps)
     except Exception:
         pass
-    if hasattr(session, 'laps') and not session.laps.empty:
-        return int(session.laps['LapNumber'].max())
+    try:
+        if hasattr(session, 'laps') and not session.laps.empty:
+            return int(session.laps['LapNumber'].max())
+    except Exception:
+        pass
     return 57  # Standard default fallback
 
 def get_tyre_deg_rate(session, driver, total_laps):
@@ -86,52 +94,55 @@ with tab1:
         with st.spinner("Loading race session..."):
             try:
                 session = load_session(year_strat, gp_strat, 'R')
-                total_laps = get_total_laps(session)
-                drivers = list(session.laps['Driver'].unique())
-                
-                st.subheader(f"Strategy Comparison: {gp_strat} GP ({year_strat})")
-                
-                col1, col2 = st.columns(2)
-                with col1:
-                    d1 = st.selectbox("Driver 1 (Undercutter)", drivers, index=0)
-                    d1_pit = st.slider(f"{d1} Pit Lap", 1, total_laps, 14)
-                with col2:
-                    d2 = st.selectbox("Driver 2 (Target)", drivers, index=min(1, len(drivers)-1))
-                    d2_pit = st.slider(f"{d2} Pit Lap", 1, total_laps, 18)
+                if session.laps.empty:
+                    st.error("Session laps data could not be loaded. Please try another session or retry.")
+                else:
+                    total_laps = get_total_laps(session)
+                    drivers = list(session.laps['Driver'].unique())
+                    
+                    st.subheader(f"Strategy Comparison: {gp_strat} GP ({year_strat})")
+                    
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        d1 = st.selectbox("Driver 1 (Undercutter)", drivers, index=0)
+                        d1_pit = st.slider(f"{d1} Pit Lap", 1, total_laps, 14)
+                    with col2:
+                        d2 = st.selectbox("Driver 2 (Target)", drivers, index=min(1, len(drivers)-1))
+                        d2_pit = st.slider(f"{d2} Pit Lap", 1, total_laps, 18)
 
-                d1_deg, d1_base = get_tyre_deg_rate(session, d1, total_laps)
-                d2_deg, d2_base = get_tyre_deg_rate(session, d2, total_laps)
+                    d1_deg, d1_base = get_tyre_deg_rate(session, d1, total_laps)
+                    d2_deg, d2_base = get_tyre_deg_rate(session, d2, total_laps)
 
-                laps_seq = np.arange(1, total_laps + 1)
-                
-                d1_times = []
-                d1_age = 0
-                for lap in laps_seq:
-                    penalty = pit_loss if lap == d1_pit else 0.0
-                    base = d1_base.get('MEDIUM', 90.0)
-                    deg = d1_deg.get('MEDIUM', 0.05)
-                    lap_time = base + (d1_age * deg) - ((total_laps - lap) * 0.035) + penalty
-                    d1_times.append(lap_time)
-                    d1_age = 0 if lap == d1_pit else d1_age + 1
+                    laps_seq = np.arange(1, total_laps + 1)
+                    
+                    d1_times = []
+                    d1_age = 0
+                    for lap in laps_seq:
+                        penalty = pit_loss if lap == d1_pit else 0.0
+                        base = d1_base.get('MEDIUM', 90.0)
+                        deg = d1_deg.get('MEDIUM', 0.05)
+                        lap_time = base + (d1_age * deg) - ((total_laps - lap) * 0.035) + penalty
+                        d1_times.append(lap_time)
+                        d1_age = 0 if lap == d1_pit else d1_age + 1
 
-                d2_times = []
-                d2_age = 0
-                for lap in laps_seq:
-                    penalty = pit_loss if lap == d2_pit else 0.0
-                    base = d2_base.get('MEDIUM', 90.0)
-                    deg = d2_deg.get('MEDIUM', 0.05)
-                    lap_time = base + (d2_age * deg) - ((total_laps - lap) * 0.035) + penalty
-                    d2_times.append(lap_time)
-                    d2_age = 0 if lap == d2_pit else d2_age + 1
+                    d2_times = []
+                    d2_age = 0
+                    for lap in laps_seq:
+                        penalty = pit_loss if lap == d2_pit else 0.0
+                        base = d2_base.get('MEDIUM', 90.0)
+                        deg = d2_deg.get('MEDIUM', 0.05)
+                        lap_time = base + (d2_age * deg) - ((total_laps - lap) * 0.035) + penalty
+                        d2_times.append(lap_time)
+                        d2_age = 0 if lap == d2_pit else d2_age + 1
 
-                gap = np.cumsum(d1_times) - np.cumsum(d2_times)
+                    gap = np.cumsum(d1_times) - np.cumsum(d2_times)
 
-                fig = go.Figure()
-                fig.add_trace(go.Scatter(x=laps_seq, y=gap, mode='lines+markers', name=f'{d1} vs {d2} Gap', line=dict(color='#E10600', width=3)))
-                fig.add_hline(y=0, line_dash="dash", line_color="white", annotation_text="Equal Position")
-                fig.update_layout(title=f"Gap Delta Over Race ({d1} vs {d2})", xaxis_title="Lap", yaxis_title=f"Gap (s) — Negative = {d1} Ahead", template="plotly_dark")
-                
-                st.plotly_chart(fig, use_container_width=True)
+                    fig = go.Figure()
+                    fig.add_trace(go.Scatter(x=laps_seq, y=gap, mode='lines+markers', name=f'{d1} vs {d2} Gap', line=dict(color='#E10600', width=3)))
+                    fig.add_hline(y=0, line_dash="dash", line_color="white", annotation_text="Equal Position")
+                    fig.update_layout(title=f"Gap Delta Over Race ({d1} vs {d2})", xaxis_title="Lap", yaxis_title=f"Gap (s) — Negative = {d1} Ahead", template="plotly_dark")
+                    
+                    st.plotly_chart(fig, use_container_width=True)
             except Exception as e:
                 st.error(f"Error loading session data: {e}")
 
