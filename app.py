@@ -49,7 +49,12 @@ def get_tyre_deg_rate(session, driver):
     return deg_rates, base_times
 
 # Create Navigation Tabs
-tab1, tab2, tab3 = st.tabs(["📊 Race Strategy Simulator", "⚡ Telemetry Comparison", "🗺️ 2D Track Heatmap"])
+tab1, tab2, tab3, tab4 = st.tabs([
+    "📊 Race Strategy Simulator", 
+    "⚡ Telemetry Comparison", 
+    "🗺️ 2D Track Heatmap",
+    "🏎️ Lando Norris Analysis"
+])
 
 # ---------------- TAB 1: STRATEGY SIMULATOR ----------------
 with tab1:
@@ -227,3 +232,82 @@ with tab3:
             ax_map.set_title(f"Track Heatmap ({map_metric}): {map_driver} — {map_year} {map_gp} (Q)\nFastest Lap: {lap_map['LapTime'].total_seconds():.3f}s", fontsize=14)
             
             st.pyplot(fig_map)
+
+# ---------------- TAB 4: LANDO NORRIS ANALYSIS ----------------
+with tab4:
+    st.subheader("Lando Norris vs Rival Telemetry Profile")
+    col_ln1, col_ln2, col_ln3 = st.columns(3)
+    with col_ln1:
+        ln_year = st.number_input("Year", min_value=2018, max_value=2024, value=2024, key="ln_year")
+    with col_ln2:
+        ln_gp = st.text_input("Grand Prix", value="Zandvoort", key="ln_gp")
+    with col_ln3:
+        ln_rival = st.text_input("Rival Driver Code", value="VER", key="ln_rival")
+
+    if st.button("Run Lando Norris Analysis"):
+        with st.spinner("Analyzing Lando Norris telemetry..."):
+            session_ln = load_session(ln_year, ln_gp, 'Q')
+            lap_nor = session_ln.laps.pick_drivers('NOR').pick_fastest()
+            lap_riv = session_ln.laps.pick_drivers(ln_rival).pick_fastest()
+
+            tel_nor = lap_nor.get_telemetry().add_distance()
+            tel_riv = lap_riv.get_telemetry().add_distance()
+
+            color_nor = fastf1.plotting.get_driver_color('NOR', session=session_ln)
+            color_riv = fastf1.plotting.get_driver_color(ln_rival, session=session_ln)
+
+            riv_time_interp = np.interp(
+                tel_nor['Distance'], 
+                tel_riv['Distance'], 
+                tel_riv['Time'].dt.total_seconds()
+            )
+            nor_time = tel_nor['Time'].dt.total_seconds().to_numpy()
+            delta_time = nor_time - riv_time_interp
+
+            fastf1.plotting.setup_mpl(mpl_style='dark_background')
+            fig_ln = plt.figure(figsize=(16, 9))
+            gs = fig_ln.add_gridspec(3, 2, height_ratios=[2, 1, 1], width_ratios=[1.2, 1])
+
+            ax_speed = fig_ln.add_subplot(gs[0, 0])
+            ax_speed.plot(tel_nor['Distance'], tel_nor['Speed'], color=color_nor, label=f"NOR ({lap_nor['LapTime'].total_seconds():.3f}s)", linewidth=2)
+            ax_speed.plot(tel_riv['Distance'], tel_riv['Speed'], color=color_riv, label=f"{ln_rival} ({lap_riv['LapTime'].total_seconds():.3f}s)", linewidth=2, linestyle='--')
+            ax_speed.set_ylabel("Speed (km/h)")
+            ax_speed.set_title(f"Lando Norris vs {ln_rival} — {ln_year} {ln_gp} Qualifying", fontsize=14, color='#FF8000')
+            ax_speed.legend(loc='lower right')
+            ax_speed.grid(True, linestyle='--', alpha=0.3)
+
+            ax_delta = fig_ln.add_subplot(gs[1, 0], sharex=ax_speed)
+            ax_delta.plot(tel_nor['Distance'], delta_time, color='#FF8000', linewidth=2)
+            ax_delta.axhline(0, color='white', linestyle='--', alpha=0.5)
+            ax_delta.set_ylabel(f"Delta (s)\n< NOR faster | {ln_rival} faster >")
+            ax_delta.grid(True, linestyle='--', alpha=0.3)
+
+            ax_throttle = fig_ln.add_subplot(gs[2, 0], sharex=ax_speed)
+            ax_throttle.plot(tel_nor['Distance'], tel_nor['Throttle'], color=color_nor, label="NOR Throttle")
+            ax_throttle.plot(tel_riv['Distance'], tel_riv['Throttle'], color=color_riv, linestyle='--', label=f"{ln_rival} Throttle")
+            ax_throttle.set_ylabel("Throttle (%)")
+            ax_throttle.set_xlabel("Track Distance (m)")
+            ax_throttle.grid(True, linestyle='--', alpha=0.3)
+
+            ax_map = fig_ln.add_subplot(gs[:, 1])
+            x = tel_nor['X'].to_numpy()
+            y = tel_nor['Y'].to_numpy()
+            speeds = tel_nor['Speed'].to_numpy()
+
+            points = np.array([x, y]).T.reshape(-1, 1, 2)
+            segments = np.concatenate([points[:-1], points[1:]], axis=1)
+
+            norm = plt.Normalize(speeds.min(), speeds.max())
+            lc = LineCollection(segments, cmap=plt.get_cmap('plasma'), norm=norm, linewidth=4)
+            lc.set_array(speeds)
+
+            ax_map.add_collection(lc)
+            ax_map.autoscale()
+            ax_map.set_axis_off()
+
+            cbar = fig_ln.colorbar(lc, ax=ax_map, orientation='horizontal', pad=0.05, shrink=0.7)
+            cbar.set_label("Lando Norris Telemetry Speed (km/h)", fontsize=11)
+            ax_map.set_title(f"Track Layout: {ln_gp}", fontsize=13)
+
+            plt.tight_layout()
+            st.pyplot(fig_ln)
