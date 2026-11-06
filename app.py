@@ -16,7 +16,7 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 st.set_page_config(page_title="F1 Analytics & Strategy Suite", layout="wide")
 st.title("🏎️ F1 Telemetry & Strategy Suite")
 
-# Safe Cache Initialization for Streamlit Cloud
+# Safe Cache Initialization for Cloud Environments
 cache_dir = '/tmp/f1_cache' if os.path.exists('/tmp') else './f1_cache_dir'
 try:
     os.makedirs(cache_dir, exist_ok=True)
@@ -26,12 +26,12 @@ except Exception:
 
 @st.cache_data
 def load_session(year, gp, session_type='R'):
-    """Loads session with error handling and fallback loading."""
+    """Loads session with graceful fallback if cloud telemetry streaming is throttled."""
     session = fastf1.get_session(year, gp, session_type)
     try:
         session.load()
     except Exception:
-        # Fallback load without heavy telemetry streams if cloud IP is throttled
+        # Fallback for cloud IPs: load essential timing data without heavy telemetry streams
         session.load(telemetry=False, weather=False, messages=False)
     return session
 
