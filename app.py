@@ -26,20 +26,23 @@ except Exception:
 
 @st.cache_data
 def load_session(year, gp, session_type='R'):
-    """Loads session with automatic fallback for cloud server IP throttling."""
+    """Loads session data with robust fallback handling."""
     session = fastf1.get_session(int(year), str(gp).strip(), session_type)
-    
-    # Try loading full session data first
     try:
         session.load()
     except Exception:
-        # Fallback to core timing data if cloud streaming IP is throttled
         try:
             session.load(telemetry=False, weather=False, messages=False)
         except Exception:
             pass
-            
     return session
+
+def is_laps_loaded(session):
+    """Safely checks if laps data is loaded without triggering DataNotLoadedError on FastF1 property methods."""
+    try:
+        return session.laps is not None and not session.laps.empty
+    except Exception:
+        return False
 
 def get_total_laps(session):
     """Safely derive total race laps without raising DataNotLoadedError."""
@@ -49,11 +52,11 @@ def get_total_laps(session):
     except Exception:
         pass
     try:
-        if hasattr(session, 'laps') and not session.laps.empty:
+        if is_laps_loaded(session):
             return int(session.laps['LapNumber'].max())
     except Exception:
         pass
-    return 57  # Default fallback
+    return 57  # Standard default fallback
 
 def get_tyre_deg_rate(session, driver, total_laps):
     try:
@@ -106,9 +109,8 @@ with tab1:
         with st.spinner("Loading race session..."):
             session = load_session(year_strat, gp_strat, 'R')
             
-            # Check if laps were successfully loaded into the session dataframe
-            if not hasattr(session, 'laps') or session.laps is None or session.laps.empty:
-                st.error(f"⚠️ FastF1 session data for '{gp_strat} {year_strat}' is temporarily throttled by F1 servers on Cloud. Try running another GP (e.g., Monaco, Spa, Monza).")
+            if not is_laps_loaded(session):
+                st.error(f"⚠️ Session data for '{gp_strat} {year_strat}' could not be loaded. F1 servers might be throttling cloud IPs. Try another GP (e.g., Monaco, Spa, Monza).")
             else:
                 total_laps = get_total_laps(session)
                 drivers = list(session.laps['Driver'].unique())
@@ -177,8 +179,8 @@ with tab2:
     if st.session_state.run_tel:
         with st.spinner("Fetching lap telemetry data..."):
             session_tel = load_session(year_tel, gp_tel, session_type)
-            if not hasattr(session_tel, 'laps') or session_tel.laps is None or session_tel.laps.empty:
-                st.error(f"Telemetry stream currently unavailable for {gp_tel} ({year_tel}).")
+            if not is_laps_loaded(session_tel):
+                st.error(f"Telemetry data currently unavailable for {gp_tel} ({year_tel}).")
             else:
                 drivers_tel = list(session_tel.laps['Driver'].unique())
 
@@ -250,8 +252,8 @@ with tab3:
     if st.button("Generate Heatmap"):
         with st.spinner("Processing GPS & Telemetry Data..."):
             session_map = load_session(map_year, map_gp, 'Q')
-            if not hasattr(session_map, 'laps') or session_map.laps is None or session_map.laps.empty:
-                st.error("Heatmap telemetry currently unavailable for this session.")
+            if not is_laps_loaded(session_map):
+                st.error("Heatmap telemetry data currently unavailable for this session.")
             else:
                 lap_map = session_map.laps.pick_drivers(map_driver).pick_fastest()
                 tel_map = lap_map.get_telemetry()
@@ -303,7 +305,7 @@ with tab4:
     if st.button("Run Lando Norris Analysis"):
         with st.spinner("Analyzing Lando Norris telemetry..."):
             session_ln = load_session(ln_year, ln_gp, 'Q')
-            if not hasattr(session_ln, 'laps') or session_ln.laps is None or session_ln.laps.empty:
+            if not is_laps_loaded(session_ln):
                 st.error("Session data unavailable for Norris comparison.")
             else:
                 lap_nor = session_ln.laps.pick_drivers('NOR').pick_fastest()
