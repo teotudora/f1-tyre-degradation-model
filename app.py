@@ -8,6 +8,7 @@ from matplotlib import pyplot as plt
 from matplotlib.collections import LineCollection
 from scipy.stats import linregress
 from sklearn.ensemble import RandomForestRegressor
+import os
 import warnings
 
 warnings.filterwarnings("ignore", category=FutureWarning)
@@ -15,7 +16,13 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 st.set_page_config(page_title="F1 Analytics & Strategy Suite", layout="wide")
 st.title("🏎️ F1 Telemetry & Strategy Suite")
 
-fastf1.Cache.enable_cache('f1_cache')
+# Safe Cache Initialization for Streamlit Cloud
+cache_dir = '/tmp/f1_cache' if os.path.exists('/tmp') else './f1_cache_dir'
+try:
+    os.makedirs(cache_dir, exist_ok=True)
+    fastf1.Cache.enable_cache(cache_dir)
+except Exception:
+    pass
 
 @st.cache_data
 def load_session(year, gp, session_type='R'):
@@ -323,7 +330,6 @@ with tab5:
         input_q_delta = st.number_input("Qualifying Pace Gap to Pole (seconds)", min_value=0.0, max_value=5.0, value=0.25, step=0.05)
 
     if st.button("Predict Race Finish"):
-        # Synthetic baseline fit from 2024 season metrics for quick response
         X_train = np.array([
             [1, 0.0], [2, 0.1], [3, 0.25], [4, 0.35], [5, 0.5],
             [6, 0.65], [7, 0.8], [8, 0.95], [10, 1.2], [15, 2.0], [20, 3.5]
