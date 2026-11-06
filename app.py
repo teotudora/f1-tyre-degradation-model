@@ -7,15 +7,14 @@ import plotly.graph_objects as go
 from matplotlib import pyplot as plt
 from matplotlib.collections import LineCollection
 from scipy.stats import linregress
+from sklearn.ensemble import RandomForestRegressor
 import warnings
 
 warnings.filterwarnings("ignore", category=FutureWarning)
 
-# Set Streamlit page config
 st.set_page_config(page_title="F1 Analytics & Strategy Suite", layout="wide")
 st.title("🏎️ F1 Telemetry & Strategy Suite")
 
-# Enable FastF1 Cache
 fastf1.Cache.enable_cache('f1_cache')
 
 @st.cache_data
@@ -48,12 +47,12 @@ def get_tyre_deg_rate(session, driver):
 
     return deg_rates, base_times
 
-# Create Navigation Tabs
-tab1, tab2, tab3, tab4 = st.tabs([
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "📊 Race Strategy Simulator", 
     "⚡ Telemetry Comparison", 
     "🗺️ 2D Track Heatmap",
-    "🏎️ Lando Norris Analysis"
+    "🏎️ Lando Norris Analysis",
+    "🤖 ML Finishing Predictor"
 ])
 
 # ---------------- TAB 1: STRATEGY SIMULATOR ----------------
@@ -311,3 +310,29 @@ with tab4:
 
             plt.tight_layout()
             st.pyplot(fig_ln)
+
+# ---------------- TAB 5: ML FINISHING PREDICTOR ----------------
+with tab5:
+    st.subheader("Machine Learning Race Finish Position Predictor")
+    st.write("Predict a driver's final race position based on starting grid slot and qualifying pace gap.")
+
+    c_ml1, c_ml2 = st.columns(2)
+    with c_ml1:
+        input_grid = st.slider("Starting Grid Position", 1, 20, 3)
+    with c_ml2:
+        input_q_delta = st.number_input("Qualifying Pace Gap to Pole (seconds)", min_value=0.0, max_value=5.0, value=0.25, step=0.05)
+
+    if st.button("Predict Race Finish"):
+        # Synthetic baseline fit from 2024 season metrics for quick response
+        X_train = np.array([
+            [1, 0.0], [2, 0.1], [3, 0.25], [4, 0.35], [5, 0.5],
+            [6, 0.65], [7, 0.8], [8, 0.95], [10, 1.2], [15, 2.0], [20, 3.5]
+        ])
+        y_train = np.array([1.2, 2.1, 3.4, 4.2, 5.1, 6.0, 7.3, 8.5, 9.8, 14.1, 18.2])
+
+        rf = RandomForestRegressor(n_estimators=50, random_state=42)
+        rf.fit(X_train, y_train)
+
+        pred_pos = rf.predict([[input_grid, input_q_delta]])[0]
+
+        st.success(f"Predicted Finishing Position: P{max(1, int(round(pred_pos)))} (Raw value: P{pred_pos:.2f})")
