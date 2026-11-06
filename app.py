@@ -1,7 +1,6 @@
 import streamlit as st
 import fastf1
 import fastf1.plotting
-import fastf1.req
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
@@ -17,12 +16,7 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 st.set_page_config(page_title="F1 Analytics & Strategy Suite", layout="wide")
 st.title("🏎️ F1 Telemetry & Strategy Suite")
 
-# Bypass F1 Cloud IP blocking by setting a standard web browser User-Agent
-fastf1.req.requests.headers.update({
-    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-})
-
-# Safe Cache Initialization for Streamlit Cloud
+# Safe Cache Initialization for Local & Cloud Environments
 cache_dir = '/tmp/f1_cache' if os.path.exists('/tmp') else './f1_cache_dir'
 try:
     os.makedirs(cache_dir, exist_ok=True)
@@ -32,13 +26,16 @@ except Exception:
 
 @st.cache_data
 def load_session(year, gp, session_type='R'):
-    """Loads session data with fallback handling for cloud environments."""
+    """Loads session data with fallback handling."""
     session = fastf1.get_session(year, gp, session_type)
     try:
         session.load()
     except Exception:
-        # Fallback load without heavy telemetry streams if primary streaming endpoints fail
-        session.load(telemetry=False, weather=False, messages=False)
+        # Fallback load without heavy telemetry streams if download fails
+        try:
+            session.load(telemetry=False, weather=False, messages=False)
+        except Exception:
+            pass
     return session
 
 def get_total_laps(session):
@@ -53,7 +50,7 @@ def get_total_laps(session):
             return int(session.laps['LapNumber'].max())
     except Exception:
         pass
-    return 57  # Default fallback
+    return 57  # Standard default fallback
 
 def get_tyre_deg_rate(session, driver, total_laps):
     try:
@@ -101,7 +98,7 @@ with tab1:
             try:
                 session = load_session(year_strat, gp_strat, 'R')
                 if not hasattr(session, 'laps') or session.laps.empty:
-                    st.error("Session data currently unavailable due to remote F1 API throttling. Try another GP or year.")
+                    st.error("Session data currently unavailable for this Grand Prix. Please try another GP or year.")
                 else:
                     total_laps = get_total_laps(session)
                     drivers = list(session.laps['Driver'].unique())
@@ -150,7 +147,7 @@ with tab1:
                     
                     st.plotly_chart(fig, use_container_width=True)
             except Exception as e:
-                st.error(f"F1 Data API Error: {e}")
+                st.error(f"Error loading session data: {e}")
 
 # ---------------- TAB 2: TELEMETRY COMPARISON ----------------
 with tab2:
