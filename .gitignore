@@ -9,7 +9,7 @@ __pycache__/
 *$py.class
 
 # FastF1 / Data Caches
-f1_cache/
+# f1_cache/
 *.ff1pkl
 *.sqlite
 
