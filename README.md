@@ -1,5 +1,9 @@
 # 🏎️ F1 Tyre Degradation Modeling & Strategy Simulator
 
+[![Streamlit App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://f1-tyre-degradation-model-ph7nypxbllmgmzg2wcs3nn.streamlit.app/)
+
+🔗 **Live Demo:** [f1-tyre-degradation-model.streamlit.app](https://f1-tyre-degradation-model-ph7nypxbllmgmzg2wcs3nn.streamlit.app/)
+
 An end-to-end Formula 1 telemetry analysis and race strategy simulation tool built with Python, **FastF1**, **SciPy**, **Scikit-Learn**, and **Streamlit**. This application isolates true compound degradation rates by correcting for fuel mass loss, performs spatial telemetry overlays, and simulates head-to-head race scenarios—including pit stop undercuts—in real time.
 
 ---
